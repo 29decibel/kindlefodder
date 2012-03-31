@@ -50,6 +50,10 @@ class NodejsDoc < Kindlefodder
 
     article_doc = Nokogiri::HTML html
 
+    # remove header nav
+    header = article_doc.at('#column1 header')
+    header.remove if header
+
     res = article_doc.at('#column1').inner_html
     File.open("#{output_dir}/#{path}", 'w') {|f| f.puts res}
     return path
