@@ -1,0 +1,15 @@
+GEM
+  remote: http://rubygems.org/
+  specs:
+    kindlerb (0.0.6)
+      mustache
+      nokogiri
+    mustache (0.99.4)
+    nokogiri (1.5.2)
+
+PLATFORMS
+  ruby
+
+DEPENDENCIES
+  kindlerb
+  nokogiri
