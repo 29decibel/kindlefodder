@@ -1,0 +1,58 @@
+require 'kindlefodder'
+require 'open-uri'
+
+class LearnVimScript < Kindlefodder
+
+  def get_source_files
+    @start_url = "http://learnvimscriptthehardway.stevelosh.com/"
+    @start_doc = Nokogiri::HTML(open(@start_url))
+
+    sections = extract_sections
+
+    File.open("#{output_dir}/sections.yml", 'w') {|f|
+      f.puts sections.to_yaml
+    }
+
+  end
+
+  def document
+    {
+      'title' => 'Learn Vimscript the Hard Way',
+      'author' => 'Steve Losh',
+      'cover' => 'cover.gif',
+      'masthead' => nil,
+    }
+  end
+
+  def extract_sections
+    articles = (@start_doc.search('section.toc ol.toc li a').map  do |link|
+      {
+        title: link.text,
+        path:  save_article_and_return_path(link['href'])
+      }
+    end)
+    [{
+      title:'All',
+      articles:articles
+    }]
+  end
+
+  def save_article_and_return_path href, filename=nil
+    path = filename || "articles/" + href.sub(/^\//, '').sub(/\/$/, '').gsub('/', '.')
+    full_url = "#{@start_url}#{href}"
+
+    html = run_shell_command "curl -s #{full_url}"
+
+    article_doc = Nokogiri::HTML html
+
+    # remove header nav
+    header = article_doc.at('section.content .prevnext')
+    header.remove if header
+
+    res = article_doc.at('section.content').inner_html
+    File.open("#{output_dir}/#{path}", 'w') {|f| f.puts res}
+    return path
+  end
+end
+
+LearnVimScript.generate
