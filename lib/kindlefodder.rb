@@ -63,7 +63,7 @@ class Kindlefodder
       sections.each_with_index {|s, section_idx|
         title = s[:title]
         FileUtils::mkdir_p("sections/%03d" % section_idx)
-        File.open("sections/%03d/_section.txt" % section_idx, 'w') {|f| f.puts title}
+        File.open("sections/%03d/_section.txt" % section_idx, 'w:utf-8') {|f| f.puts title}
         puts "sections/%03d -> #{title}" % section_idx
         # save articles
         s[:articles].each_with_index {|a, item_idx|
@@ -71,12 +71,24 @@ class Kindlefodder
           path = a[:path]
           puts a[:url], path
           puts "Processing '#{a[:title]}' on path: #{path}"
-          item = Nokogiri::HTML(File.open(path,'r:utf-8').read)
+          item = Nokogiri::HTML(File.open(path,'r:utf-8').read, nil, 'UTF-8')
           download_images! item
           fixup_html! item
           item_path = "sections/%03d/%03d.html" % [section_idx, item_idx] 
-          add_head_section item, article_title
-          out = item.to_html
+          description = a[:description]
+          author = a[:author]
+          add_head_section item, article_title, description, author
+          out = item.to_xhtml
+
+          # hacks to get the articles list to appear properly with summaries
+          out.sub!('html xmlns="http://www.w3.org/1999/xhtml"', 
+            '\& xml:lang="en" lang="en"')
+          out.sub!(/<!DOCTYPE.*$/, '')
+          out.sub!('meta http-equiv="Content-Type" content="text/html; charset=UTF-8"', 
+            'meta content="http://www.w3.org/1999/xhtml; charset=utf-8" http-equiv="Content-Type"')
+          out.strip!
+          # remove these useless characters:
+          out.gsub!('&#13;', '')
 
           File.open(item_path, 'w:utf-8'){|f| f.puts out}
           puts "  #{item_path} -> #{article_title}"
@@ -86,11 +98,19 @@ class Kindlefodder
     end
   end
 
-  def add_head_section(doc, title)
+  def add_head_section(doc, title, description='', author='')
     head = Nokogiri::XML::Node.new "head", doc
     title_node = Nokogiri::XML::Node.new "title", doc
     title_node.content = title
     title_node.parent = head
+    description_node = Nokogiri::XML::Node.new "meta", doc
+    description_node['name'] = 'description'
+    description_node['content'] = description
+    description_node.parent = head
+    author_node = Nokogiri::XML::Node.new "meta", doc
+    author_node['name'] = 'author'
+    author_node['content'] = author
+    author_node.parent = head
     css = Nokogiri::XML::Node.new "link", doc
     css['rel'] = 'stylesheet'
     css['type'] = 'text/css'
@@ -114,26 +134,25 @@ class Kindlefodder
       /(?<img_file>[^\/]+)$/ =~ src
 
       FileUtils::mkdir_p 'images'
-      FileUtils::mkdir_p 'grayscale_images'
+      FileUtils::mkdir_p 'processed_images'
       unless File.size?("images/#{img_file}")
         run_shell_command "curl -Ls '#{src}' > images/#{img_file}"
         if img_file !~ /(png|jpeg|jpg|gif)$/i
           filetype = `identify images/#{img_file} | awk '{print $2}'`.chomp.downcase
-          run_shell_command "mv images/#{img_file} images/#{img_file}.#{filetype}"
+          run_shell_command "cp images/#{img_file} images/#{img_file}.#{filetype}"
           img_file = "#{img_file}.#{filetype}"
         end
       end
-      grayscale_image_path = "grayscale_images/#{img_file.gsub('%20', '_').sub(/(\.\w+)$/, "-grayscale.gif")}"
+      processed_image_path = "processed_images/#{img_file.gsub('%20', '_').sub(/(\.\w+)$/, "-grayscale.gif")}"
       sleep 0.1
-      unless File.size?(grayscale_image_path)
-        run_shell_command "convert images/#{img_file} -compose over -background white -flatten -type Grayscale -resize '400x300>' -alpha off #{grayscale_image_path}"
+      unless File.size?(processed_image_path)
+        run_shell_command "convert images/#{img_file} -compose over -background white -flatten -resize '300x200>' -alpha off #{processed_image_path}"
       end
-      img['src'] = [Dir.pwd, grayscale_image_path].join("/")
+      img['src'] = [Dir.pwd, processed_image_path].join("/")
     }
   end
   
   def fixup_html! doc
-
     # Sort of a hack to improve dt elements spacing
     # Using a css rule margin-top doesn't work
     doc.search('dt').each {|dt|
@@ -147,8 +166,18 @@ class Kindlefodder
         p.swap p.children
         p.remove
       }
-      # remove any leading spaces after elements inside any li tag
-      li.inner_html = li.inner_html.strip
+    }
+
+    doc.search('li,p').each {|li|
+      # remove any leading spaces before elements inside any li tag
+      # THIS causes encoding problems!
+      #li.inner_html = li.inner_html.strip
+      if (n = li.children.first) && n.text?
+        n.content = n.content.strip
+      end
+      if (n = li.children.last) && n.text?
+        n.content = n.content.strip
+      end
     }
   end
 
